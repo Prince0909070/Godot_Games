@@ -1,0 +1,37 @@
+[gd_scene load_steps=5 format=3 uid="uid://l68dslevic8r"]
+
+[ext_resource type="Texture2D" uid="uid://bpuu44e2mxo55" path="res://Images/Frame/DarkKing_idle/DarkKing_idle1.png" id="1_lkv7d"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_lkv7d"]
+bg_color = Color(0.913063, 0, 0.197947, 1)
+
+[sub_resource type="Theme" id="Theme_ushfy"]
+ProgressBar/constants/outline_size = 5
+ProgressBar/font_sizes/font_size = 24
+ProgressBar/styles/fill = SubResource("StyleBoxFlat_lkv7d")
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_owm7s"]
+
+[node name="Character" type="CharacterBody2D"]
+position = Vector2(1, 0)
+
+[node name="HealthBar" type="ProgressBar" parent="."]
+offset_left = 165.0
+offset_top = 234.0
+offset_right = 345.0
+offset_bottom = 272.0
+scale = Vector2(0.8, 0.8)
+theme = SubResource("Theme_ushfy")
+value = 100.0
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture_filter = 1
+position = Vector2(247, 374)
+scale = Vector2(2.5, 2.979)
+texture = ExtResource("1_lkv7d")
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="."]
+libraries = {
+&"": SubResource("AnimationLibrary_owm7s")
+}
+autoplay = "idle"
