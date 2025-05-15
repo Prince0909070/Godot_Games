@@ -1,0 +1,188 @@
+# BattleScene.gd (不使用 State Machine 的 _process)
+extends Node
+
+enum State {
+	RPS,
+	SELECT_SKILL,
+	PERFORM_ATTACK
+}
+
+signal player_won_rps
+signal boss_won_rps
+signal attack_selected(skill_index)
+
+@onready var player_node = $Player
+@onready var boss_node = $Boss
+@onready var attack_select_ui = $AttackSelectUI
+@onready var rps_ui = $猜拳UI
+
+var current_player_character
+var boss_character
+var player_choice = -1
+var boss_choice = -1
+var current_state = State.RPS
+var current_attack_skill_index = -1
+var is_player_turn_rps = true
+
+func _ready():
+	current_player_character = player_node.get_current_character()
+	boss_character = boss_node.get_boss_character()
+	attack_select_ui.hide()
+
+	if is_instance_valid(rps_ui):
+		for i in 3:
+			var button = rps_ui.get_node(get_rps_button_name(i))
+			if is_instance_valid(button):
+				button.connect("pressed", _on_rps_button_pressed.bind(i))
+
+	if is_instance_valid(attack_select_ui):
+		for i in 3:
+			var button = attack_select_ui.get_node(get_skill_button_name(i))
+			if is_instance_valid(button):
+				button.connect("pressed", _on_skill_button_selected.bind(i))
+
+	player_node.connect("character_defeated", _on_player_character_defeated)
+
+	# 初始進入猜拳狀態
+	current_state = State.RPS
+	start_rps_round()
+
+# _process 函數現在可以保持空閒，或者你可以在這裡處理其他與狀態無關的全局邏輯
+func _process(delta):
+	pass
+
+func start_rps_round():
+	current_state = State.RPS
+	is_player_turn_rps = true
+	player_choice = -1
+	boss_choice = -1
+	rps_ui.show()
+	attack_select_ui.hide()
+
+func _on_rps_button_pressed(choice: int):
+	if current_state != State.RPS or not is_player_turn_rps:
+		return
+
+	player_choice = choice
+	boss_choice = randi_range(0, 2)
+	rps_ui.hide()
+	determine_rps_winner()
+
+func determine_rps_winner():
+	if player_choice == boss_choice:
+		print("平手！重新猜拳。")
+		start_rps_round()
+	elif (player_choice == 0 and boss_choice == 2) or \
+		 (player_choice == 1 and boss_choice == 0) or \
+		 (player_choice == 2 and boss_choice == 1):
+		print("玩家猜拳獲勝！")
+		emit_signal("player_won_rps")
+		current_state = State.SELECT_SKILL
+		show_attack_selection()
+	else:
+		print("Boss 猜拳獲勝！")
+		emit_signal("boss_won_rps")
+		boss_attack()
+		# Boss 攻擊後回到猜拳階段
+		if !boss_node.is_defeated() and !player_node.is_all_defeated():
+			current_state = State.RPS
+			start_rps_round()
+
+func show_attack_selection():
+	if current_state != State.SELECT_SKILL:
+		return
+	is_player_turn_rps = false
+	attack_select_ui.show()
+
+func _on_skill_button_selected(skill_index: int):
+	if current_state != State.SELECT_SKILL:
+		return
+	current_attack_skill_index = skill_index
+	attack_select_ui.hide()
+	current_state = State.PERFORM_ATTACK
+	perform_attack_phase() # 技能選完直接進入攻擊階段
+
+func perform_attack_phase():
+	if current_state != State.PERFORM_ATTACK:
+		return
+	if current_attack_skill_index != -1:
+		player_attack(current_attack_skill_index)
+		current_attack_skill_index = -1 # 重置技能索引
+	elif !is_player_turn_rps: # Boss 猜贏的情況
+		boss_attack_perform()
+
+func player_attack(skill_index: int):
+	if current_state != State.PERFORM_ATTACK or not is_instance_valid(current_player_character):
+		return
+	current_player_character.get_node("AnimationPlayer").play("attack")
+	await current_player_character.get_node("AnimationPlayer").animation_finished
+
+	var damage = 0
+	match skill_index:
+		0:
+			damage = current_player_character.get_attack_power()
+			print(current_player_character.name + " 使用技能 1 攻擊 Boss！造成 " + str(damage) + " 點傷害。")
+		1:
+			damage = current_player_character.get_attack_power()
+			print(current_player_character.name + " 使用技能 2 攻擊 Boss！造成 " + str(damage) + " 點傷害。")
+		2:
+			damage = current_player_character.get_attack_power()
+			print(current_player_character.name + " 使用技能 3 攻擊 Boss！造成 " + str(damage) + " 點傷害。")
+
+	boss_node.take_damage(damage)
+
+	current_player_character.get_node("AnimationPlayer").play("idle")
+	check_battle_end()
+	if !boss_node.is_defeated() and !player_node.is_all_defeated():
+		current_state = State.RPS
+		start_rps_round()
+
+func boss_attack():
+	if current_state != State.RPS: # Boss 猜贏後直接進入攻擊
+		return
+	current_state = State.PERFORM_ATTACK
+	perform_attack_phase()
+
+func boss_attack_perform():
+	if current_state != State.PERFORM_ATTACK or not is_instance_valid(boss_character):
+		return
+	boss_character.get_node("AnimationPlayer").play("attack")
+	await boss_character.get_node("AnimationPlayer").animation_finished
+
+	if is_instance_valid(current_player_character):
+		var damage = boss_node.get_attack_power()
+		current_player_character.get_node("HealthBar").value -= damage
+		print("Boss 攻擊 " + current_player_character.name + "！造成 " + str(damage) + " 點傷害。")
+
+	boss_character.get_node("AnimationPlayer").play("idle")
+	check_battle_end()
+	if !boss_node.is_defeated() and !player_node.is_all_defeated():
+		current_state = State.RPS
+		start_rps_round()
+
+func check_battle_end():
+	if boss_node.is_defeated():
+		print("玩家勝利！")
+		# 這裡加入玩家勝利的遊戲結束邏輯
+	elif player_node.is_all_defeated():
+		print("Boss 勝利！")
+		# 這裡加入 Boss 勝利的遊戲結束邏輯
+
+func _on_player_character_defeated(character_node):
+	var next_char = player_node.get_next_available_character()
+	if next_char:
+		current_player_character = next_char
+		print("當前上場角色變為：" + current_player_character.name)
+	else:
+		print("所有玩家角色都已陣亡！遊戲結束 (Boss 勝利)。")
+		# 這裡可以加入 Boss 勝利的遊戲結束邏輯
+
+func get_rps_button_name(choice_index: int) -> String:
+	match choice_index:
+		0: return "ScissorsButton"
+		1: return "RockButton"
+		2: return "PaperButton"
+		_: return ""
+
+func get_skill_button_name(skill_index: int) -> String:
+	return "Skill" + str(skill_index + 1) + "Button"
