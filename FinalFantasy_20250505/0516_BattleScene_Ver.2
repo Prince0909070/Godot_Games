@@ -1,0 +1,155 @@
+# BattleScene.gd
+extends Node
+
+signal player_won_rps
+signal boss_won_rps
+signal attack_selected(skill_index)
+
+@onready var player_node = $Player
+@onready var boss_node = $Boss/boss1
+@onready var rps_ui = $RPSUI
+@onready var skill_select_ui = $SkillSelectUI
+
+var current_player_character # 當前上場的角色
+var boss_choice = 0 # Boss 固定出剪刀 (0: 剪刀, 1: 石頭, 2: 布)
+var player_choice = -1
+var is_player_turn = true
+var current_state = "RPS" # RPS, SELECT_SKILL, PERFORM_ATTACK
+
+func _ready():
+	# 播放所有角色的 idle 動畫
+	boss_node.get_node("AnimationSprite2D").play("idle")
+	for child in player_node.get_children():
+		if child.has_node("AnimationSprite2D"):
+			child.get_node("AnimationSprite2D").play("idle")
+
+	# 遊戲開始進入猜拳階段
+	start_rps_round()
+
+func start_rps_round():
+	current_state = "RPS"
+	is_player_turn = true
+	player_choice = -1
+	rps_ui.show()
+	skill_select_ui.hide()
+
+func _on_player_rps_choice(choice: int):
+	if current_state != "RPS" or not is_player_turn:
+		return
+
+	player_choice = choice
+	rps_ui.hide()
+	determine_rps_winner()
+
+func determine_rps_winner():
+	if player_choice == boss_choice:
+		print("平手！重新猜拳。")
+		start_rps_round()
+	elif (player_choice == 1 and boss_choice == 0) or \
+		 (player_choice == 2 and boss_choice == 1) or \
+		 (player_choice == 0 and boss_choice == 2):
+		print("玩家猜拳獲勝！")
+		current_state = "SELECT_SKILL"
+		show_skill_selection()
+	else:
+		print("Boss 猜拳獲勝！")
+		current_state = "PERFORM_ATTACK"
+		boss_attack()
+
+func show_skill_selection():
+	is_player_turn = true
+	skill_select_ui.show()
+
+func _on_skill_selected(skill_index: int):
+	if current_state != "SELECT_SKILL" or not is_player_turn:
+		return
+
+	current_state = "PERFORM_ATTACK"
+	skill_select_ui.hide()
+	player_attack(skill_index)
+
+func player_attack(skill_index: int):
+	# 假設 skill_index 0 對應 Cha1, 1 對應 Cha2, 2 對應 Cha3
+	var target_cha
+	if skill_index == 0 and player_node.has_node("Cha1"):
+		target_cha = player_node.get_node("Cha1")
+	elif skill_index == 1 and player_node.has_node("Cha2"):
+		target_cha = player_node.get_node("Cha2")
+	elif skill_index == 2 and player_node.has_node("Cha3"):
+		target_cha = player_node.get_node("Cha3")
+
+	if is_instance_valid(target_cha):
+		current_player_character = target_cha # 設定當前攻擊的角色
+		target_cha.get_node("AnimationSprite2D").play("attack")
+		await target_cha.get_node("AnimationSprite2D").animation_finished
+		boss_node.get_node("HP").value -= 50 # 假設攻擊力為 50
+		target_cha.get_node("AnimationSprite2D").play("idle")
+		check_battle_end()
+		if current_state != "GAME_OVER":
+			start_rps_round()
+
+func boss_attack():
+	if is_instance_valid(boss_node):
+		boss_node.get_node("AnimationSprite2D").play("attack")
+		await boss_node.get_node("AnimationSprite2D").animation_finished
+		# 隨機選擇一個存活的玩家角色進行攻擊
+		var alive_chas = []
+		for child in player_node.get_children():
+			if child.has_node("HP") and child.get_node("HP").value > 0:
+				alive_chas.append(child)
+
+		if !alive_chas.is_empty():
+			var target_cha = alive_chas[randi() % alive_chas.size()]
+			target_cha.get_node("HP").value -= 30 # 假設 Boss 攻擊力為 30
+			target_cha.get_node("AnimationSprite2D").play("idle")
+			check_battle_end()
+			if current_state != "GAME_OVER":
+				start_rps_round()
+		else:
+			check_battle_end() # 所有玩家都死亡
+
+func check_battle_end():
+	var player_defeated = true
+	for child in player_node.get_children():
+		if child.has_node("HP") and child.get_node("HP").value > 0:
+			player_defeated = false
+			break
+
+	if boss_node.get_node("HP").value <= 0:
+		print("玩家勝利！")
+		current_state = "GAME_OVER"
+		# 處理玩家勝利邏輯
+	elif player_defeated:
+		print("Boss 勝利！")
+		current_state = "GAME_OVER"
+		# 處理 Boss 勝利邏輯
+
+func get_rps_button_name(choice_index: int) -> String:
+	match choice_index:
+		0: return "Scissors"
+		1: return "Rock"
+		2: return "Paper"
+		_: return ""
+
+func get_skill_button_name(skill_index: int) -> String:
+	return "Skill" + str(skill_index + 1) + "_button"
+
+# 連接 RPSUI 的按鈕信號
+func _on_Scissors_pressed():
+	_on_player_rps_choice(0)
+
+func _on_Rock_pressed():
+	_on_player_rps_choice(1)
+
+func _on_Paper_pressed():
+	_on_player_rps_choice(2)
+
+# 連接 SkillSelectUI 的按鈕信號
+func _on_Skill1Button_pressed():
+	_on_skill_selected(0) # 假設 Skill1Button 對應 Cha1
+
+func _on_Skill2Button_pressed():
+	_on_skill_selected(1) # 假設 Skill2Button 對應 Cha2
+
+func _on_Skill3Button_pressed():
+	_on_skill_selected(2) # 假設 Skill3Button 對應 Cha3
