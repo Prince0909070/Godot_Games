@@ -1,0 +1,125 @@
+# BattleScene.gd
+extends Node
+
+signal battle_over(winner) # winner 可以是 "player" 或 "boss"
+
+@onready var player_node = $Player
+@onready var boss_node = $Boss/boss1
+@onready var rps_ui = $RPSUI
+@onready var skill_select_ui = $SkillSelectUI
+
+var current_state = "RPS" # RPS, SELECT_SKILL, PERFORM_ATTACK
+var is_player_turn = true
+var player_choice = -1
+var boss_choice = 0 # Boss 固定出剪刀 (0: 剪刀, 1: 石頭, 2: 布)
+var current_attacking_character # 記錄當前攻擊的角色 (Player 的 Cha 或 Boss)
+var attack_skill_index = -1 # 記錄玩家選擇的技能索引 (對應到 Cha 的 index)
+
+func _ready():
+	rps_ui.connect("player_choice", _on_player_rps_choice)
+	skill_select_ui.connect("skill_selected", _on_skill_selected)
+	start_rps_round()
+
+func start_rps_round():
+	current_state = "RPS"
+	is_player_turn = true
+	player_choice = -1
+	rps_ui.show()
+	skill_select_ui.hide()
+
+func _on_player_rps_choice(choice: int):
+	if current_state != "RPS" or not is_player_turn:
+		return
+	player_choice = choice
+	rps_ui.hide()
+	determine_rps_winner()
+
+func determine_rps_winner():
+	if player_choice == boss_choice:
+		print("平手！重新猜拳。")
+		start_rps_round()
+	elif (player_choice == 1 and boss_choice == 0) or \
+		 (player_choice == 2 and boss_choice == 1) or \
+		 (player_choice == 0 and boss_choice == 2):
+		print("玩家猜拳獲勝！")
+		current_state = "SELECT_SKILL"
+		show_skill_selection()
+	else:
+		print("Boss 猜拳獲勝！")
+		current_state = "PERFORM_ATTACK"
+		boss_attack()
+
+func show_skill_selection():
+	is_player_turn = true
+	skill_select_ui.show()
+
+func _on_skill_selected(skill_index: int):
+	if current_state != "SELECT_SKILL" or not is_player_turn:
+		return
+	current_state = "PERFORM_ATTACK"
+	skill_select_ui.hide()
+	attack_skill_index = skill_index
+	player_attack(attack_skill_index)
+
+func player_attack(skill_index: int):
+	var target_cha
+	if skill_index == 0 and is_instance_valid(player_node.cha1):
+		target_cha = player_node.cha1
+	elif skill_index == 1 and is_instance_valid(player_node.cha2):
+		target_cha = player_node.cha2
+	elif skill_index == 2 and is_instance_valid(player_node.cha3):
+		target_cha = player_node.cha3
+
+	if is_instance_valid(target_cha) and target_cha.is_alive():
+		current_attacking_character = target_cha
+		target_cha.play_animation("attack")
+		await target_cha.get_node("AnimationSprite2D").animation_finished
+		boss_node.take_damage(target_cha.get_attack_power())
+		target_cha.play_animation("idle")
+		check_battle_end()
+		if current_state != "GAME_OVER":
+			start_rps_round()
+	else:
+		print("選擇了無效或已死亡的角色！")
+		current_state = "SELECT_SKILL" # 回到技能選擇
+		show_skill_selection()
+
+func boss_attack():
+	if is_instance_valid(boss_node) and boss_node.is_alive():
+		current_attacking_character = boss_node
+		boss_node.play_animation("attack")
+		await boss_node.get_node("AnimationSprite2D").animation_finished
+		var alive_chas = player_node.get_all_alive_characters()
+		if !alive_chas.is_empty():
+			var target_cha = alive_chas[randi() % alive_chas.size()]
+			if is_instance_valid(target_cha):
+				target_cha.take_damage(boss_node.get_attack_power())
+				target_cha.play_animation("idle")
+				check_battle_end()
+				if current_state != "GAME_OVER":
+					start_rps_round()
+		else:
+			check_battle_end() # 所有玩家都死亡
+	elif is_instance_valid(boss_node):
+		boss_node.play_animation("idle") # Boss 死亡時播放 idle (可選)
+		check_battle_end()
+
+func check_battle_end():
+	if is_instance_valid(boss_node) and !boss_node.is_alive():
+		print("玩家勝利！")
+		current_state = "GAME_OVER"
+		emit_signal("battle_over", "player")
+	elif player_node.get_all_alive_characters().is_empty():
+		print("Boss 勝利！")
+		current_state = "GAME_OVER"
+		emit_signal("battle_over", "boss")
+
+func get_rps_button_name(choice_index: int) -> String:
+	match choice_index:
+		0: return "Scissors"
+		1: return "Rock"
+		2: return "Paper"
+		_: return ""
+
+func get_skill_button_name(skill_index: int) -> String:
+	return "Skill" + str(skill_index + 1) + "_button"
